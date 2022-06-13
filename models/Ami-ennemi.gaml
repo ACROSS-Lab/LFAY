@@ -9,6 +9,7 @@
 model Amiennemi
 
 global {
+	bool protect <- true;
 		geometry shape <- envelope(square(100));
 	
 		int max <- 10;
@@ -83,6 +84,7 @@ species eleve skills:[moving] schedules: shuffle(eleve){
 	user_command selection action: select_me;
 	
 	action select_me{
+		apply_selection <- true;
 		ask eleve {
 			is_selected <- false;
 			is_selected_ennemi <- false;
@@ -104,7 +106,7 @@ species eleve skills:[moving] schedules: shuffle(eleve){
 	} 
 	
 	reflex moving {
-		geometry line <- line([ami.location,ennemi.location]);
+		geometry line <- line([ami.location, protect ? ennemi.location : (ennemi.location * -1)]);
 		list<cell> cells_t <- (cell overlapping line) where each.is_free;
 		if empty(cells_t) {
 			cells_t <- my_cell.neighbors where each.is_free;
@@ -165,11 +167,16 @@ grid cell width: 50 height: 50 neighbors: 4  {
 	bool is_free <- true;
 }
 
+experiment je_me_cache parent: je_protege autorun: true {
+	action _init_ {
+		create simulation with:(protect: false);
+	}
 
+}
 experiment je_protege autorun: true {
 	float minimum_cycle_duration <- 0.05;
 	output synchronized: true {
-		display la_classe type: opengl fullscreen: true axes: false toolbar: false{
+		display la_classe type: opengl fullscreen: 1 axes: false toolbar: false{
 			event "p" action: do_pause;
 			event "c" action: do_resume;
 			event "s" action:selection_mode;

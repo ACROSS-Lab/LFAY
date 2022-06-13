@@ -1,6 +1,7 @@
 model EvacuationInClassroom
 
 global {
+	bool with_sound <- true;
 	int max <- 10;
 	//DImension of the grid agent
 	int nb_cols <- 20;
@@ -8,7 +9,7 @@ global {
 	gif_file fire_icon <- gif_file("../includes/fire.gif");
 	list<string> possible_objects <- ["../includes/teddybear3.png", "../includes/car.png", "../includes/phone.png"];
 	list
-	myname <- ["Cat Tien", "Linh San", "Minh An", "Patrick", "Nghi", "Alexis", "Arthur", "Diep Anh", "Quynh Nga", "Lucas", "Léo"];
+	myname <- ["Cat Tien", "Linh San", "Minh An", "Alexis", "Nghi", "Patrick", "Arthur", "Diep Anh", "Quynh Nga", "Lucas", "Léo"];
 	list<float> sizes <- [2.5, 3.0,3.0,3.5,2.5, 2.5,2.5,3.0,3.0,2.5,2.5,3.0];
 	geometry shape <- envelope(square(20));
 	file texture <- file('../includes/table.png');
@@ -43,9 +44,12 @@ global {
 	string event <- "study";
 	
 	list<cell> free_cells;
+	bool end_simulation<- false;
 	
+	int num_on_fire <-0;
 	float step <- 0.25;
 
+	int num_people_forgetting <- 0 parameter:true max:10;
 	init {
 		list<geometry> tbl <- [];float xx <- 2.0;
 		float yy <- 7.0;
@@ -55,7 +59,7 @@ global {
 			tbl <+ (rectangle(2, 1) at_location {xx + 10, yy + i * 3.5});
 			tbl <+ (rectangle(2, 1) at_location {xx + 15, yy + i * 3.5});
 		}
-		create class from: [rectangle(20, 13.5) at_location {10, 13.5}] {
+		create class from: [rectangle(20, 12.5) at_location {10, 13.5}] {
 			ask cell overlapping self {
 				is_wall <- false;
 				color <- #black;
@@ -86,7 +90,8 @@ global {
 				mytable <- myself;
 				location <- {mytable.location.x, mytable.location.y - 1};
 				my_cell <- cell(location);
-				target <- one_of(cell where each.is_exit).location;
+				target_cell <- one_of(cell where each.is_exit);
+				target <-target_cell.location;
 				name <- myname[int(self) mod length(myname)];
 			}
 
@@ -96,12 +101,20 @@ global {
 			mytable <- nil;
 			location <- {10,6};
 			my_cell <- cell(location);
-			target <- one_of(cell where each.is_exit).location;
+			target_cell <- one_of(cell where each.is_exit);
+			target <-target_cell.location;
 			name <- "Maitresse";
 		}
 		free_cells <- remove_duplicates(free_cells);
 		create clock number: 1 {
 			location <- {clock_x, clock_y};
+		}
+		
+		
+		if num_people_forgetting > 0 {
+			ask num_people_forgetting among people {
+				thing_to_get <- true;
+			}
 		}
 
 	}
@@ -118,6 +131,9 @@ global {
 		time_wait <- time_wait- step;
 	}
 	
+	reflex end when: empty(people) and empty(teacher) {
+		end_simulation <- true;
+	}
 }
 
 species class {
@@ -157,7 +173,7 @@ species people skills: [moving]{
 	gif_file icon <- gif_file("../includes/" + int(self) + ".gif");
 	image_file my_object <- image_file(one_of(possible_objects));
 	table mytable;
-	float speed <- gauss(4,1.5) #km/#h min: 2 #km/#h;
+	float speed <- gauss(4,1.5) #km/#h min: 3 #km/#h;
 	cell my_cell;
 	rgb color <- rnd_color(255);
 	point target;
@@ -168,6 +184,8 @@ species people skills: [moving]{
 	bool thing_to_get_ok <- false;
 	bool is_on_fire <- false;
 	
+	cell target_cell;
+	
 	action enter_cell {
 		my_cell.is_used <- false;
 		my_cell.color <- #gray;
@@ -175,7 +193,7 @@ species people skills: [moving]{
 	} 
 	action exit_cell {
 		my_cell.is_used <- true;
-			my_cell.color <- #black;
+		my_cell.color <- #black;
 	
 		free_cells << my_cell;
 	} 
@@ -187,9 +205,9 @@ species people skills: [moving]{
 	reflex evacuate when: time_wait <= 0 and event = "hazard" {
 		do exit_cell;
 		point loc <- copy(location);
-		do goto(target: target, on:free_cells + my_cell, recompute_path: true);
+		do goto(target: target, on:free_cells + [target_cell, my_cell] , recompute_path: true);
 		if (loc = location) {
-			do goto(target: target, speed: speed/2.0);
+			do goto(target: target, speed: speed);
 		}
 		my_cell <- cell(location);
 		do enter_cell;
@@ -201,17 +219,20 @@ species people skills: [moving]{
 				do die;
 			} else  {
 				if thing_to_get_ok or mytable = nil{
-					target <- one_of(cell where each.is_exit).location;
+					target_cell <- one_of(cell where each.is_exit);
+					target <-target_cell.location;
 					thing_to_get <- false;
 				} else {
 					target <- mytable.location;
+					target_cell <- cell(target);
 					thing_to_get_ok <- true;
 				}
 			}
 			
 		}
-		if my_cell.is_on_fire {
+		if my_cell.is_on_fire and not is_on_fire {
 			is_on_fire <- true;
+			num_on_fire <- num_on_fire  + 1;
 		} 
 	}
 
@@ -232,13 +253,13 @@ species people skills: [moving]{
 		
 		}
 		draw icon size: size; // rotate: heading + 45;
-		draw name font: font(30) color: #black at: {location.x, location.y + 2}; // rotate: heading + 45;
+		draw name font: font(30) anchor: #center color: #black at: {location.x, location.y + 2}; // rotate: heading + 45;
 		if thing_to_get{
 			draw  my_object  size: 1.0 at: {mytable.location.x, mytable.location.y - 0.9} ; // rotate: heading + 45;
 			//draw  image_file("../includes/teddybear3.png")  size: 1.0 at: mytable.location ; // rotate: heading + 45;
 		}
 		if thing_to_get_ok and not thing_to_get  {
-			draw  my_object  size: 1.0 ; // rotate: heading + 45;
+			draw  my_object  size: 1.0 at: location + {0,size/3}; // rotate: heading + 45;
 			
 		} 
 		
@@ -300,8 +321,9 @@ species clock {
 		if (event != "hazard" and cycle = 50) {
 			event <- "hazard";
 	
-	
-			bool is_ok <- play_sound("../includes/AlarmFire.wav");
+			if with_sound {
+				bool is_ok <- play_sound("../includes/AlarmFire.wav");
+			}
 			create hazard {
 				location <- (class[0]).location;
 				ask cell overlapping self {
@@ -350,6 +372,9 @@ experiment "Debug" type: gui autorun: true{
 			
 			grid cell border: #black ;
 
+		graphics class position: {0, 0, 0.01} transparency:0.2{
+				draw image_file("../includes/class.jpg"); //cube(100) scaled_by {1,1,0.08}  texture:("../includes/class.jpg") ;
+			}
 			species people aspect: debug; //position: {0, 0, 0.05};
 			//			species class;
 			//species exit;
@@ -363,10 +388,25 @@ experiment "Debug" type: gui autorun: true{
 
 
 
+experiment "LFAY Batch" type:batch repeat: 30 until:end_simulation keep_seed:true autorun:true{
+	parameter "Nombre de personnes qui ont oublie quelque chose" var: num_people_forgetting among:[0,2,5,10];
+	
+	init {
+		with_sound <- false;
+	}
+	permanent {
+		display "Resultats" toolbar:false { 
+			chart "Nombre de personnes en danger" tick_font:font(20) label_font:font(30) series_label_position:none background:#black color: #white x_serie_labels:[0,2,5,10] x_label: "Nombre d'eleves qui vont chercher un objet dans la salle"{
+				data "Nombre de personnes en danger" value: simulations mean_of each.num_on_fire thickness:5.0 marker_size:3;
+			}
+		}
+	}
+}
+
 experiment "LFAY Classroom" type: gui autorun: true{
 	float minimum_cycle_duration <- 0.15;
 	output  synchronized: true {
-		display Ripples type: opengl  axes: false toolbar: false fullscreen: true{ //camera_pos: {50.00000000000001,140.93835147797245,90.93835147797242} camera_look_pos: {50.0,50.0,0.0} camera_up_vector: {-4.3297802811774646E-17,0.7071067811865472,0.7071067811865478}{
+		display Ripples type: opengl  axes: false toolbar: false fullscreen: 1{ //camera_pos: {50.00000000000001,140.93835147797245,90.93835147797242} camera_look_pos: {50.0,50.0,0.0} camera_up_vector: {-4.3297802811774646E-17,0.7071067811865472,0.7071067811865478}{
 		//			image file: "../includes/class.jpg"; //refresh: false;
 			
 			event "p" action: do_pause;
